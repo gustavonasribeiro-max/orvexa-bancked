@@ -1,0 +1,107 @@
+const express = require('express');
+const cors = require('cors');
+require('dotenv').config();
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '15mb' }));
+
+const PORT = process.env.PORT || 3000;
+const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
+
+// Rota de Teste de Saúde (Verifica se o servidor está online)
+app.get('/api/health', (req, res) => {
+    res.json({ 
+        status: 'online', 
+        service: 'Orvexa AI Backend Proxy',
+        tokenConfigured: !!REPLICATE_API_TOKEN 
+    });
+});
+
+// Rota 1: Iniciar a Geração de Vídeo na Replicate (Modelo Minimax / Video)
+app.post('/api/generate-video', async (req, res) => {
+    try {
+        if (!REPLICATE_API_TOKEN) {
+            return res.status(500).json({ error: "Erro de Configuração: REPLICATE_API_TOKEN não definida nas variáveis de ambiente do servidor." });
+        }
+
+        const { prompt, aspectRatio, style, duration, imageBase64 } = req.body;
+        if (!prompt) {
+            return res.status(400).json({ error: "O prompt descritivo é obrigatório." });
+        }
+
+        // Mapeamento dos parâmetros para o modelo oficial de vídeo
+        const inputPayload = {
+            prompt: ${prompt}, estilo ${style}, proporção ${aspectRatio}, duração ${duration},
+            aspect_ratio: aspectRatio === '16:9' ? '16:9' : aspectRatio === '9:16' ? '9:16' : '1:1'
+        };
+
+        if (imageBase64) {
+            inputPayload.input_image = imageBase64;
+        }
+
+        // Chamada oficial à API da Replicate
+        const replicateResponse = await fetch("https://api.replicate.com/v1/predictions", {
+            method: "POST",
+            headers: {
+                "Authorization": Bearer ${REPLICATE_API_TOKEN},
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                version: "f6142421c43224b3f27f917242a7852c0f2eece76861cb7e42d6a59bca402777",
+                input: inputPayload
+            })
+        });
+
+        const data = await replicateResponse.json();
+        
+        if (!replicateResponse.ok) {
+            return res.status(replicateResponse.status).json({ 
+                error: data.detail || "Falha ao processar a predição na Replicate." 
+            });
+        }
+
+        // Retorna o ID da tarefa para o frontend acompanhar
+        res.json({ 
+            taskId: data.id, 
+            status: data.status 
+        });
+
+    } catch (err) {
+        res.status(500).json({ error: Erro interno no servidor backend: ${err.message} });
+    }
+});
+
+// Rota 2: Consultar o Status da Tarefa Assíncrona
+app.get('/api/check-task/:id', async (req, res) => {
+    try {
+        const taskId = req.params.id;
+        
+        const replicateResponse = await fetch(https://api.replicate.com/v1/predictions/${taskId}, {
+            headers: {
+                "Authorization": Bearer ${REPLICATE_API_TOKEN}
+            }
+        });
+
+        const data = await replicateResponse.json();
+        
+        if (!replicateResponse.ok) {
+            return res.status(replicateResponse.status).json({ 
+                error: data.detail || "Erro ao consultar o status da tarefa." 
+            });
+        }
+
+        res.json({
+            status: data.status, // "starting", "processing", "succeeded", "failed"
+            output: data.output,  // URL real do vídeo gerado quando concluído
+            error: data.error
+        });
+
+    } catch (err) {
+        res.status(500).json({ error: Erro ao verificar status: ${err.message} });
+    }
+});
+
+app.listen(PORT, () => {
+    console.log(Backend da Orvexa AI rodando na porta ${PORT});
+});
